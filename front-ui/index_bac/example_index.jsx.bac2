@@ -15,12 +15,11 @@ import {
 } from "recharts";
 
 // 单文件 React 原型（Tailwind + Recharts）。
-// 新增：
-// 1) 区块扫描（网络 + 区块高度区间/持续、进度/ETA/控制）。
-// 2) AI 复查（Ollama 配置 + 模拟输出）。
-// 3) 设置页：仅 Ethereum / Sepolia / BNB 三网的 RPC & API Key；新增网络图标。
-// 4) 自检 Tests 扩充：持续扫描、网络图标映射覆盖等。
-// 5) 【新增】API 可用性测试：一键探测 RPC、探测 Etherscan/BscScan、探测 Ollama 接口。
+// 本版新增：
+// 1) 区块扫描（按网络 + 区块高度区间 / 持续扫描）与“进度条 + ETA + 暂停/继续/完成”演示。
+// 2) AI 复查页：可配置 Ollama Endpoint/Model/Prompt，基于当前扫描假数据生成“AI 复核报告（演示）”。
+// 3) 设置页增加 AI 配置项；Tests 新增对区块扫描与 AI 配置的断言。
+// 4) 仍保留仪表盘、创建扫描、扫描结果、规则库等页面。
 
 // --- 假数据：扫描结果 ---
 const seedScans = [
@@ -93,7 +92,7 @@ const seedScans = [
     id: "SCAN-20251027-002",
     targetType: "solidity",
     target: "ERC721Market.sol (uploaded)",
-    network: "Ethereum",
+    network: "local",
     createdAt: "2025-10-27 14:02",
     status: "safe",
     libs: ["openzeppelin@4.8.3"],
@@ -126,7 +125,7 @@ const seedScans = [
     id: "SCAN-20251024-003",
     targetType: "bytecode",
     target: "0x60035af3... (bytecode)",
-    network: "BNB Chain",
+    network: "Unknown",
     createdAt: "2025-10-24 09:31",
     status: "vuln",
     libs: [],
@@ -190,12 +189,12 @@ const seedBlockJobs = [
     startBlock: 6942000,
     endBlock: 6945000,
     continuous: false,
-    status: "running",
+    status: "running", // running/paused/done/cancelled
     processed: 1500,
     total: 3001,
     findings: { high: 1, medium: 2, low: 3 },
     startedAt: "2025-10-30 15:10",
-    speed: 45
+    speed: 45 // blocks/s (演示)
   },
   {
     id: "JOB-20251030-002",
@@ -246,55 +245,8 @@ function SeverityPill({ sev }) {
   return <Badge tone={m.tone}>{m.label}</Badge>;
 }
 
-// --- 网络图标 ---
-function netKey(name = "") {
-  const s = String(name).toLowerCase();
-  if (s.includes("sepolia")) return "sepolia";
-  if (s.includes("ethereum")) return "ethereum";
-  if (s.includes("bnb") || s.includes("bsc") || s.includes("binance")) return "bnb";
-  return "default";
-}
-
-function NetworkIcon({ network, className = "w-4 h-4" }) {
-  const k = netKey(network);
-  if (k === "ethereum") {
-    return (
-      <svg viewBox="0 0 24 24" className={className} aria-label="Ethereum">
-        <polygon points="12,2 18.5,12 12,15 5.5,12" fill="#627EEA" />
-        <polygon points="12,22 5.5,12 12,15 18.5,12" fill="#627EEA" opacity="0.75" />
-      </svg>
-    );
-  }
-  if (k === "sepolia") {
-    return (
-      <svg viewBox="0 0 24 24" className={className} aria-label="Sepolia">
-        <polygon points="12,2 18.5,12 12,15 5.5,12" fill="#8b5cf6" />
-        <polygon points="12,22 5.5,12 12,15 18.5,12" fill="#8b5cf6" opacity="0.75" />
-        <circle cx="18.5" cy="5.5" r="2.3" fill="#111827" stroke="#a78bfa" strokeWidth="1" />
-        <text x="18.5" y="6" textAnchor="middle" fontSize="2.4" fill="#a78bfa" fontFamily="monospace">T</text>
-      </svg>
-    );
-  }
-  if (k === "bnb") {
-    return (
-      <svg viewBox="0 0 24 24" className={className} aria-label="BNB Chain">
-        <rect x="11" y="2" width="2" height="2" transform="rotate(45 12 3)" fill="#F3BA2F" />
-        <rect x="3" y="10" width="2" height="2" transform="rotate(45 4 11)" fill="#F3BA2F" />
-        <rect x="19" y="10" width="2" height="2" transform="rotate(45 20 11)" fill="#F3BA2F" />
-        <rect x="11" y="18" width="2" height="2" transform="rotate(45 12 19)" fill="#F3BA2F" />
-        <rect x="11" y="10" width="2" height="2" transform="rotate(45 12 11)" fill="#F3BA2F" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-label="Network">
-      <circle cx="12" cy="12" r="10" fill="#3f3f46" />
-    </svg>
-  );
-}
-
 // 简易自检（最小测试用例）
-function runSelfTests(scans, selected, blockJobs, aiConfig, netCfg) {
+function runSelfTests(scans, selected, blockJobs, aiConfig) {
   const tests = [];
   // 1. problemScans 逻辑
   const onlyVuln = scans.filter((s) => s.status === "vuln");
@@ -311,10 +263,10 @@ function runSelfTests(scans, selected, blockJobs, aiConfig, netCfg) {
   const sorted = [...dates].sort();
   tests.push({ name: "趋势日期排序", pass: JSON.stringify([...dates].sort()) === JSON.stringify(sorted), details: `${sorted.join(",")}` });
 
-  // 4. POC 日志 join("\\n")
+  // 4. POC 日志 join("\n")
   const logs = selected?.poc?.logs || [];
-  const joined = logs.join("\\n");
-  const joinOk = logs.length <= 1 || joined.includes("\\n");
+  const joined = logs.join("\n");
+  const joinOk = logs.length <= 1 || joined.includes("\n");
   tests.push({ name: "POC 日志换行 join(\n)", pass: joinOk, details: `lines=${logs.length}` });
 
   // 5. 区块扫描：非持续任务百分比范围
@@ -330,16 +282,6 @@ function runSelfTests(scans, selected, blockJobs, aiConfig, netCfg) {
   const contJobs = blockJobs.filter((j) => j.continuous);
   const contOk = contJobs.every((j) => j.total === null);
   tests.push({ name: "持续扫描 total 为 null", pass: contOk, details: `continuousJobs=${contJobs.length}` });
-
-  // 8. 网络图标映射覆盖
-  const nets = Array.from(new Set([...scans.map((s) => s.network), ...blockJobs.map((j) => j.network)])).filter(Boolean);
-  const iconOk = nets.every((n) => ["ethereum", "sepolia", "bnb", "default"].includes(netKey(n)));
-  tests.push({ name: "网络图标映射覆盖", pass: iconOk, details: nets.join(", ") });
-
-  // 9. 【新增】API 字段格式看起来有效（若填写则应以 http 开头）
-  const looksUrl = (s) => !s || /^https?:\/\//i.test(s);
-  const fmtOk = looksUrl(netCfg.ethereum.rpc) && looksUrl(netCfg.sepolia.rpc) && looksUrl(netCfg.bnb.rpc) && looksUrl(aiConfig.endpoint);
-  tests.push({ name: "API 字段格式（URL 形态）", pass: fmtOk, details: `${netCfg.ethereum.rpc ? "ETH:ok" : "ETH:empty"} · ${netCfg.sepolia.rpc ? "SEP:ok" : "SEP:empty"} · ${netCfg.bnb.rpc ? "BNB:ok" : "BNB:empty"} · AI:${aiConfig.endpoint ? "ok" : "empty"}` });
 
   return tests;
 }
@@ -359,16 +301,6 @@ export default function App() {
     model: "llama3.1",
     prompt: `你是一名智能合约安全审计助手。\n基于以下扫描器发现，输出复核意见：\n1) 可能误报项\n2) 严重性调整建议\n3) 可复现实验建议/POC 要点\n请用中文给出要点式结论。`
   });
-
-  // 网络与API Key配置（仅 Ethereum / Sepolia / BNB）
-  const [netCfg, setNetCfg] = useState({
-    ethereum: { rpc: "", apiKey: "", explorer: "Etherscan", chainId: 1 },
-    sepolia: { rpc: "", apiKey: "", explorer: "Etherscan", chainId: 11155111 },
-    bnb: { rpc: "", apiKey: "", explorer: "BscScan", chainId: 56 },
-  });
-  const [savedBlink, setSavedBlink] = useState({ ethereum: false, sepolia: false, bnb: false });
-  function updateNet(k, patch) { setNetCfg((prev) => ({ ...prev, [k]: { ...prev[k], ...patch } })); }
-  function saveNet(k) { setSavedBlink((p) => ({ ...p, [k]: true })); setTimeout(() => setSavedBlink((p) => ({ ...p, [k]: false })), 1200); }
 
   // 统计数据
   const totals = useMemo(() => {
@@ -406,7 +338,7 @@ export default function App() {
 
   const pieColors = ["#ef4444", "#f59e0b", "#3b82f6"]; // red/yellow/blue
 
-  // 可选项
+  // 可选项（类型、网络）
   const allNetworks = Array.from(new Set(scans.map((s) => s.network).concat(blockJobs.map((j) => j.network))));
   const allRuleIds = Array.from(new Set(scans.flatMap((s) => s.findings.map((f) => f.ruleId))));
 
@@ -457,171 +389,7 @@ export default function App() {
   }, []);
 
   // 自检结果（设置页展示）
-  const selfTests = useMemo(() => runSelfTests(scans, selected, blockJobs, aiConfig, netCfg), [scans, selected, blockJobs, aiConfig, netCfg]);
-
-  // --- API 可用性测试 ---
-  const [apiRunning, setApiRunning] = useState(false);
-  const [apiResults, setApiResults] = useState([]);
-  // 固定测试项 + 结果映射（用于“未测试”占位显示）
-  const fixedApiTests = [
-    "Ethereum RPC",
-    "Sepolia RPC",
-    "BNB RPC",
-    "Etherscan (mainnet)",
-    "Etherscan (sepolia)",
-    "BscScan",
-    "AI (Ollama /api/tags)",
-  ];
-  const resultsMap = useMemo(() => {
-    // 兼容 .jsx：去除 TS 类型断言，使用纯 JS 构建映射
-    const m = {};
-    (apiResults || []).forEach((r) => {
-      if (r && r.name) m[r.name] = r;
-    });
-    return m;
-  }, [apiResults]);
-
-  async function withTimeout(promise, ms = 6000) {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
-    ]);
-  }
-
-  async function probeApis() {
-    if (apiRunning) return;
-    setApiRunning(true);
-    setApiResults([]);
-    const out = [];
-    const push = (name, ok, detail) => out.push({ name, ok, detail });
-
-    // RPC: Ethereum
-    try {
-      if (netCfg.ethereum.rpc) {
-        const r = await withTimeout(
-          fetch(netCfg.ethereum.rpc, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
-          }),
-          6000
-        );
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        push("Ethereum RPC", !!j.result, `chainId=${j.result || "?"}`);
-      } else {
-        push("Ethereum RPC", false, "未配置 RPC URL");
-      }
-    } catch (e) {
-      push("Ethereum RPC", false, String(e.message || e));
-    }
-
-    // RPC: Sepolia
-    try {
-      if (netCfg.sepolia.rpc) {
-        const r = await withTimeout(
-          fetch(netCfg.sepolia.rpc, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
-          }),
-          6000
-        );
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        push("Sepolia RPC", !!j.result, `chainId=${j.result || "?"}`);
-      } else {
-        push("Sepolia RPC", false, "未配置 RPC URL");
-      }
-    } catch (e) {
-      push("Sepolia RPC", false, String(e.message || e));
-    }
-
-    // RPC: BNB
-    try {
-      if (netCfg.bnb.rpc) {
-        const r = await withTimeout(
-          fetch(netCfg.bnb.rpc, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
-          }),
-          6000
-        );
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        push("BNB RPC", !!j.result, `chainId=${j.result || "?"}`);
-      } else {
-        push("BNB RPC", false, "未配置 RPC URL");
-      }
-    } catch (e) {
-      push("BNB RPC", false, String(e.message || e));
-    }
-
-    // Explorer: Etherscan (mainnet)
-    try {
-      if (netCfg.ethereum.apiKey) {
-        const url = `https://api.etherscan.io/api?module=proxy&action=eth_blockNumber&apikey=${encodeURIComponent(netCfg.ethereum.apiKey)}`;
-        const r = await withTimeout(fetch(url), 6000);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        push("Etherscan (mainnet)", j.status === "1" || !!j.result, j.message || j.result || "ok");
-      } else {
-        push("Etherscan (mainnet)", false, "未配置 API Key");
-      }
-    } catch (e) {
-      push("Etherscan (mainnet)", false, String(e.message || e));
-    }
-
-    // Explorer: Etherscan (sepolia)
-    try {
-      if (netCfg.sepolia.apiKey) {
-        const url = `https://api-sepolia.etherscan.io/api?module=proxy&action=eth_blockNumber&apikey=${encodeURIComponent(netCfg.sepolia.apiKey)}`;
-        const r = await withTimeout(fetch(url), 6000);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        push("Etherscan (sepolia)", j.status === "1" || !!j.result, j.message || j.result || "ok");
-      } else {
-        push("Etherscan (sepolia)", false, "未配置 API Key");
-      }
-    } catch (e) {
-      push("Etherscan (sepolia)", false, String(e.message || e));
-    }
-
-    // Explorer: BscScan
-    try {
-      if (netCfg.bnb.apiKey) {
-        const url = `https://api.bscscan.com/api?module=proxy&action=eth_blockNumber&apikey=${encodeURIComponent(netCfg.bnb.apiKey)}`;
-        const r = await withTimeout(fetch(url), 6000);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        push("BscScan", j.status === "1" || !!j.result, j.message || j.result || "ok");
-      } else {
-        push("BscScan", false, "未配置 API Key");
-      }
-    } catch (e) {
-      push("BscScan", false, String(e.message || e));
-    }
-
-    // AI: Ollama /api/tags
-    try {
-      if (aiConfig.enabled && aiConfig.endpoint) {
-        const base = aiConfig.endpoint.replace(/\/$/, "");
-        const r = await withTimeout(fetch(`${base}/api/tags`), 6000);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        const models = (j.models || []).map((m) => m.name).slice(0, 3).join(", ");
-        push("AI (Ollama /api/tags)", true, models || "ok");
-      } else {
-        push("AI (Ollama /api/tags)", false, "未启用或未配置 endpoint");
-      }
-    } catch (e) {
-      push("AI (Ollama /api/tags)", false, String(e.message || e));
-    }
-
-    setApiResults(out);
-    setApiRunning(false);
-  }
+  const selfTests = useMemo(() => runSelfTests(scans, selected, blockJobs, aiConfig), [scans, selected, blockJobs, aiConfig]);
 
   function Row({ s }) {
     return (
@@ -639,9 +407,7 @@ export default function App() {
             <span className="font-mono text-zinc-300">{s.target}</span>
           </div>
         </td>
-        <td className="px-3 py-2 text-zinc-300">
-          <div className="flex items-center gap-2"><NetworkIcon network={s.network} />{s.network}</div>
-        </td>
+        <td className="px-3 py-2 text-zinc-300">{s.network}</td>
         <td className="px-3 py-2 text-zinc-400">{s.createdAt}</td>
         <td className="px-3 py-2">
           {s.status === "safe" ? (
@@ -715,7 +481,7 @@ export default function App() {
     return Math.min(100, Math.round((job.processed / job.total) * 100));
   }
 
-  // POC 模板
+  // POC 模板（保持上一版）
   const [pocScene, setPocScene] = useState("Reentrancy");
   const [victimAddr, setVictimAddr] = useState("0xVictim...dead");
   const [attackerAddr, setAttackerAddr] = useState("0xAttacker...beef");
@@ -781,7 +547,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
     return scenes[pocScene];
   }, [pocScene, victimAddr]);
 
-  // AI 复查（演示）
+  // AI 复查（演示）：根据当前选中扫描生成摘要
   const [aiOutput, setAiOutput] = useState("");
   function runAiReview() {
     if (!aiConfig.enabled) {
@@ -799,20 +565,21 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
       lines.push(`${i + 1}. [${f.severity}] ${f.title} · ${f.ruleId}`);
     });
     lines.push("—— AI（模拟）复核意见 ——");
+    // 简单规则：把 Medium 里含 “输入未校验/边界” 的条目标记为可降级
     const downgrade = selected.findings.filter((f) => f.severity === "Medium" && /未校验|边界/.test(f.title)).map((f) => f.ruleId);
     if (downgrade.length) lines.push(`可考虑降级：${downgrade.join(", ")}`);
     if (selected.findings.some((f) => f.ruleId === "RE-ENT-001")) {
       lines.push("建议生成/运行重入 POC：使用 Foundry，设置最小重入深度 2，并断言余额差异。");
     }
     lines.push("建议补充：对关键路径添加事件日志与访问控制单元测试。");
-    setAiOutput(lines.join("\\n"));
+    setAiOutput(lines.join("\n"));
   }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6">
       <div className="max-w-7xl mx-auto">
         <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">智能合约漏洞检测平台 · 原型（v3.2）</h1>
+          <h1 className="text-2xl font-semibold">智能合约漏洞检测平台 · 原型（v3）</h1>
           <nav className="flex gap-2">
             {[
               { id: "dashboard", name: "仪表盘" },
@@ -839,7 +606,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
           </nav>
         </header>
 
-        {/* 仪表盘 */}
+        {/* 仪表盘（保持） */}
         {tab === "dashboard" && (
           <section className="mt-6 space-y-6">
             <div className="grid md:grid-cols-4 gap-4">
@@ -934,7 +701,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
                             <span className="font-mono text-zinc-300">{s.target}</span>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-zinc-300"><div className="flex items-center gap-2"><NetworkIcon network={s.network} />{s.network}</div></td>
+                        <td className="px-3 py-2 text-zinc-300">{s.network}</td>
                         <td className="px-3 py-2 text-zinc-400">{s.createdAt}</td>
                         <td className="px-3 py-2 text-zinc-300">H:{s.summary.high} / M:{s.summary.medium} / L:{s.summary.low}</td>
                       </tr>
@@ -973,7 +740,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
           </section>
         )}
 
-        {/* 创建扫描 */}
+        {/* 创建扫描（单目标） */}
         {tab === "new" && (
           <section className="mt-6 grid md:grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800">
@@ -985,6 +752,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
                   <option>Sepolia</option>
                   <option>Ethereum</option>
                   <option>BNB Chain</option>
+                  <option>Polygon</option>
                 </select>
                 <button
                   className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500"
@@ -1029,7 +797,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
           </section>
         )}
 
-        {/* 区块扫描 */}
+        {/* 区块扫描（网络 + 区块高度区间/持续） */}
         {tab === "blockscan" && (
           <section className="mt-6 grid lg:grid-cols-2 gap-4">
             {/* 创建区块扫描任务 */}
@@ -1038,9 +806,10 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
               <div className="mt-3 grid gap-2 text-sm">
                 <label className="flex items-center gap-2">网络
                   <select id="bs-net" className="px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg">
-                    <option>Ethereum</option>
-                    <option>Sepolia</option>
-                    <option>BNB Chain</option>
+                    {allNetworks.map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                    {!allNetworks.length && <option>Sepolia</option>}
                   </select>
                 </label>
                 <label className="flex items-center gap-2">起始区块
@@ -1062,6 +831,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
                     const startEl = document.getElementById("bs-start");
                     const endEl = document.getElementById("bs-end");
                     const contEl = document.getElementById("bs-cont");
+                    const parEl = document.getElementById("bs-parallel");
                     const network = (netEl && netEl.value) || "Sepolia";
                     const startBlock = parseInt((startEl && startEl.value) || "6942000", 10);
                     const endStr = (endEl && endEl.value) || "";
@@ -1102,7 +872,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
                     <div key={job.id} className="p-3 rounded-xl bg-black/20 border border-zinc-800">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
                         <div className="font-semibold">{job.id}</div>
-                        <div className="text-xs text-zinc-400 flex items-center gap-2"><NetworkIcon network={job.network} />{job.network} · {job.startBlock} → {job.endBlock ?? "∞"} · {job.startedAt}</div>
+                        <div className="text-xs text-zinc-400">{job.network} · {job.startBlock} → {job.endBlock ?? "∞"} · {job.startedAt}</div>
                         <div>{job.status === "running" ? <Badge tone="yellow">进行中</Badge> : job.status === "done" ? <Badge tone="green">已完成</Badge> : job.status === "paused" ? <Badge tone="blue">已暂停</Badge> : <Badge>已取消</Badge>}</div>
                       </div>
                       <div className="mt-2">
@@ -1150,7 +920,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
                   <div className="text-sm text-zinc-400 mt-1 flex gap-3 flex-wrap">
                     <span>目标：<span className="font-mono text-zinc-300">{selected.target}</span></span>
                     <span>类型：<Badge tone="blue">{selected.targetType}</Badge></span>
-                    <span className="flex items-center gap-2">网络：<NetworkIcon network={selected.network} />{selected.network}</span>
+                    <span>网络：{selected.network}</span>
                     <span>时间：{selected.createdAt}</span>
                   </div>
                 </div>
@@ -1192,7 +962,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
                 <div className="mt-2">
                   <div className="text-sm text-zinc-300">工具：{selected.poc.tool}</div>
                   <div className="text-sm text-zinc-300 mt-1">摘要：{selected.poc.gist}</div>
-                  <pre className="mt-2 text-xs bg-black/30 p-2 rounded-lg border border-zinc-800">{(selected.poc.logs || []).join("\\n")}</pre>
+                  <pre className="mt-2 text-xs bg-black/30 p-2 rounded-lg border border-zinc-800">{(selected.poc.logs || []).join("\n")}</pre>
                 </div>
               ) : (
                 <p className="text-sm text-zinc-400 mt-2">未检测到高风险漏洞，因此未生成 POC。</p>
@@ -1201,7 +971,7 @@ contract TestDelegateHijack {/* 根据目标合约接口填充 */}
           </section>
         )}
 
-        {/* POC & 模拟 */}
+        {/* POC & 模拟（保持） */}
         {tab === "poc" && (
           <section className="mt-6 grid lg:grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800">
@@ -1306,143 +1076,44 @@ npx hardhat test`}
           </section>
         )}
 
-        {/* 设置 */}
+        {/* 设置（含 AI 与 Tests） */}
         {tab === "settings" && (
-          <section className="mt-6 grid md:grid-cols-2 gap-4 items-stretch">
-            {/* 左列：网络与 API Key（占两行，等高布局） */}
-            <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800 md:row-span-2 h-full flex flex-col">
-              <h2 className="text-lg font-semibold">网络与 API Key</h2>
-              <div className="text-sm text-zinc-400 mt-2">当前仅演示 Ethereum、Sepolia、BNB，保存到本地状态。</div>
-              <div className="mt-3 grid gap-3">
-                {/* Ethereum */}
-                <div className="p-3 rounded-xl bg-black/20 border border-zinc-800">
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold flex items-center gap-2"><NetworkIcon network="Ethereum" />Ethereum</div>
-                    {savedBlink.ethereum ? <Badge tone="green">已保存</Badge> : <Badge tone="zinc">未保存</Badge>}
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-1">Chain ID: {netCfg.ethereum.chainId} · Explorer: {netCfg.ethereum.explorer}</div>
-                  <div className="mt-2 grid gap-2 text-sm">
-                    <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl font-mono" placeholder="ETHEREUM_RPC=https://..." value={netCfg.ethereum.rpc} onChange={(e)=>updateNet('ethereum',{rpc:e.target.value})} />
-                    <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="ETHERSCAN_API_KEY=..." value={netCfg.ethereum.apiKey} onChange={(e)=>updateNet('ethereum',{apiKey:e.target.value})} />
-                    <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700" onClick={()=>saveNet('ethereum')}>保存（本地状态）</button>
-                  </div>
+          <section className="mt-6 grid md:grid-cols-2 gap-4">
+            <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800">
+              <h2 className="text-lg font-semibold">后端连接与源</h2>
+              <div className="text-sm text-zinc-400 mt-2">不会保存，仅用于原型展示</div>
+              <div className="mt-3 grid gap-2">
+                <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="SEPOLIA_RPC=https://..." />
+                <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="ETHEREUM_RPC=https://..." />
+                <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="BLOCKSCOUT_API_KEY=...（可选）" />
+                <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="ETHERSCAN_API_KEY=..." />
+                <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="SOURCIFY_URL=https://repo.sourcify.dev" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="Fork Block=6942000" />
+                  <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="Max Parallelism=4" />
                 </div>
-                {/* Sepolia */}
-                <div className="p-3 rounded-xl bg-black/20 border border-zinc-800">
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold flex items-center gap-2"><NetworkIcon network="Sepolia" />Sepolia</div>
-                    {savedBlink.sepolia ? <Badge tone="green">已保存</Badge> : <Badge tone="zinc">未保存</Badge>}
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-1">Chain ID: {netCfg.sepolia.chainId} · Explorer: {netCfg.sepolia.explorer}</div>
-                  <div className="mt-2 grid gap-2 text-sm">
-                    <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl font-mono" placeholder="SEPOLIA_RPC=https://..." value={netCfg.sepolia.rpc} onChange={(e)=>updateNet('sepolia',{rpc:e.target.value})} />
-                    <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="ETHERSCAN_API_KEY=..." value={netCfg.sepolia.apiKey} onChange={(e)=>updateNet('sepolia',{apiKey:e.target.value})} />
-                    <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700" onClick={()=>saveNet('sepolia')}>保存（本地状态）</button>
-                  </div>
-                </div>
-                {/* BNB */}
-                <div className="p-3 rounded-xl bg-black/20 border border-zinc-800">
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold flex items-center gap-2"><NetworkIcon network="BNB Chain" />BNB Chain</div>
-                    {savedBlink.bnb ? <Badge tone="green">已保存</Badge> : <Badge tone="zinc">未保存</Badge>}
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-1">Chain ID: {netCfg.bnb.chainId} · Explorer: {netCfg.bnb.explorer}</div>
-                  <div className="mt-2 grid gap-2 text-sm">
-                    <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl font-mono" placeholder="BSC_RPC=https://..." value={netCfg.bnb.rpc} onChange={(e)=>updateNet('bnb',{rpc:e.target.value})} />
-                    <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" placeholder="BSCSCAN_API_KEY=..." value={netCfg.bnb.apiKey} onChange={(e)=>updateNet('bnb',{apiKey:e.target.value})} />
-                    <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700" onClick={()=>saveNet('bnb')}>保存（本地状态）</button>
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-2 text-sm">
+                <div className="grid gap-2 text-sm">
                   <label className="flex items-center gap-2"><input type="checkbox" defaultChecked className="accent-blue-500" /> 启用代理识别（EIP-1967/UUPS/Transparent）</label>
                   <label className="flex items-center gap-2"><input type="checkbox" defaultChecked className="accent-blue-500" /> 启用 AST 基线对比（OpenZeppelin）</label>
                   <label className="flex items-center gap-2"><input type="checkbox" defaultChecked className="accent-blue-500" /> 启用 POC 自动生成</label>
                   <label className="flex items-center gap-2"><input type="checkbox" className="accent-blue-500" /> 记录 TX Trace（可能较慢）</label>
                 </div>
+                <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700">保存（演示）</button>
               </div>
             </div>
 
-            {/* 右列（合并成一列，等高） */}
-            <div className="md:row-span-2 flex flex-col gap-4 h-full">
-              {/* 上：区块浏览器 API Key（每网络一行 + 保存） */}
-              <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800 flex-1">
-                <h2 className="text-lg font-semibold">区块浏览器 API Key</h2>
-                <div className="mt-3 grid gap-3">
-                  {/* Ethereum - Etherscan Mainnet */}
-                  <div className="p-3 rounded-xl bg-black/20 border border-zinc-800">
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold flex items-center gap-2"><NetworkIcon network="Ethereum" />Etherscan (Mainnet)</div>
-                      {savedBlink.ethereum ? <Badge tone="green">已保存</Badge> : <Badge tone="zinc">未保存</Badge>}
-                    </div>
-                    <div className="mt-2 grid gap-2 text-sm">
-                      <input
-                        className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl"
-                        placeholder="ETHERSCAN_API_KEY=..."
-                        value={netCfg.ethereum.apiKey}
-                        onChange={(e)=>updateNet('ethereum',{apiKey:e.target.value})}
-                      />
-                      <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700" onClick={()=>saveNet('ethereum')}>保存（本地状态）</button>
-                    </div>
-                  </div>
-                  {/* Sepolia - Etherscan Sepolia */}
-                  <div className="p-3 rounded-xl bg-black/20 border border-zinc-800">
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold flex items-center gap-2"><NetworkIcon network="Sepolia" />Etherscan (Sepolia)</div>
-                      {savedBlink.sepolia ? <Badge tone="green">已保存</Badge> : <Badge tone="zinc">未保存</Badge>}
-                    </div>
-                    <div className="mt-2 grid gap-2 text-sm">
-                      <input
-                        className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl"
-                        placeholder="ETHERSCAN_API_KEY=..."
-                        value={netCfg.sepolia.apiKey}
-                        onChange={(e)=>updateNet('sepolia',{apiKey:e.target.value})}
-                      />
-                      <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700" onClick={()=>saveNet('sepolia')}>保存（本地状态）</button>
-                    </div>
-                  </div>
-                  {/* BNB - BscScan */}
-                  <div className="p-3 rounded-xl bg-black/20 border border-zinc-800">
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold flex items-center gap-2"><NetworkIcon network="BNB Chain" />BscScan</div>
-                      {savedBlink.bnb ? <Badge tone="green">已保存</Badge> : <Badge tone="zinc">未保存</Badge>}
-                    </div>
-                    <div className="mt-2 grid gap-2 text-sm">
-                      <input
-                        className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl"
-                        placeholder="BSCSCAN_API_KEY=..."
-                        value={netCfg.bnb.apiKey}
-                        onChange={(e)=>updateNet('bnb',{apiKey:e.target.value})}
-                      />
-                      <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700" onClick={()=>saveNet('bnb')}>保存（本地状态）</button>
-                    </div>
-                  </div>
-                  <div className="text-xs text-zinc-500">提示：保存后可在下方直接进行连通性测试。</div>
-                </div>
-              </div>
-
-              {/* 下：API 可用性测试（固定条目，未测试显示“—”避免双重“未测试”） */}
-              <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800 flex-1">
-                <h2 className="text-lg font-semibold">API 可用性测试</h2>
-                <div className="mt-2 flex gap-2">
-                  <button className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500" onClick={probeApis} disabled={apiRunning}>{apiRunning ? "测试中..." : "开始测试"}</button>
-                  <button className="px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700" onClick={()=>setApiResults([])}>清空结果</button>
-                </div>
-                <div className="mt-3 grid gap-2">
-                  {fixedApiTests.map((name) => {
-                    const r = resultsMap[name];
-                    return (
-                      <div key={name} className="p-2 rounded-lg bg-black/20 border border-zinc-800 flex items-center justify-between">
-                        <div className="text-sm">{name}</div>
-                        <div className="flex items-center gap-2">
-                          {r ? (r.ok ? <Badge tone="green">PASS</Badge> : <Badge tone="red">FAIL</Badge>) : <Badge tone="zinc">未测试</Badge>}
-                          <div className="text-xs text-zinc-400 max-w-[60ch] truncate" title={r?.detail || "—"}>{r ? (r.detail || "ok") : "—"}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800">
+              <h2 className="text-lg font-semibold">AI 复查设置</h2>
+              <div className="mt-3 grid gap-2 text-sm">
+                <label className="flex items-center gap-2">启用
+                  <input type="checkbox" className="accent-blue-500" checked={aiConfig.enabled} onChange={(e)=>setAiConfig({ ...aiConfig, enabled: e.target.checked })} />
+                </label>
+                <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" value={aiConfig.endpoint} onChange={(e)=>setAiConfig({ ...aiConfig, endpoint: e.target.value })} />
+                <input className="px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl" value={aiConfig.model} onChange={(e)=>setAiConfig({ ...aiConfig, model: e.target.value })} />
+                <textarea className="w-full h-24 p-2 bg-zinc-950 border border-zinc-800 rounded-xl" value={aiConfig.prompt} onChange={(e)=>setAiConfig({ ...aiConfig, prompt: e.target.value })} />
               </div>
             </div>
+
             {/* 开发者自检（Tests） */}
             <div className="p-4 rounded-2xl shadow bg-zinc-900/40 border border-zinc-800 md:col-span-2">
               <h2 className="text-lg font-semibold">开发者自检（Tests）</h2>
